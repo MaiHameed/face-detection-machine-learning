@@ -24,9 +24,9 @@ gt_isclaimed = zeros(length(gt_ids),1);
 npos = size(gt_ids,1); %total number of true positives.
 
 % sort detections by decreasing confidence
-[sc,si]=sort(-confidences);
-image_ids=image_ids(si);
-bboxes   =bboxes(si,:);
+[sc,si] = sort(-confidences);
+image_ids = image_ids(si);
+bboxes = bboxes(si,:);
 
 % assign detections to ground truth objects
 nd=length(confidences);

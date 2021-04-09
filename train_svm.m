@@ -31,3 +31,5 @@ confidences = [pos_feats(1:numOfTraining,:); neg_feats(1:numOfTraining,:)]*w + b
 fprintf('Classifier performance on validation data:\n')
 confidences = [pos_feats(1+numOfTraining:end,:); neg_feats(1+numOfTraining:end,:)]*w + b;
 [tp_rate, fp_rate, tn_rate, fn_rate] =  report_accuracy(confidences, validLabels);
+
+save('my_svm.mat','w','b');

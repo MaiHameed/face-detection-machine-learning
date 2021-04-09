@@ -14,7 +14,7 @@ neg_imageList = dir(sprintf('%s/*.jpg',neg_imageDir));
 neg_nImages = length(neg_imageList);
 
 % cellSize needs to be a factor of 36
-cellSize = 4;
+cellSize = 6;
 im = imread(sprintf('%s/%s',pos_imageDir,pos_imageList(1).name));
 [imRows, imCols, ~] = size(im);
 featSize = 31*(imRows/cellSize)*(imCols/cellSize);
@@ -48,3 +48,4 @@ for i=1:neg_nImages
 end
 
 save('pos_neg_feats.mat','pos_feats','neg_feats','pos_nImages','neg_nImages');
+save('cellSize.mat','cellSize');
