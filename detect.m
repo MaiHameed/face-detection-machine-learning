@@ -11,21 +11,26 @@ nImages = length(imageList);
 load('cellSize.mat');
 load('my_svm.mat');
 
-%bboxes = zeros(0,4);
+bboxesTotal = zeros(0,4);
 confidences = zeros(0,1);
 image_names = cell(0,1);
 
 bboxesTotal = [];
+
+shouldDisplay = 0;
 
 dim = 36;
 for i=1:nImages
     % load and show the image
     im = im2single(imread(sprintf('%s/%s',imageDir,imageList(i).name)));
     
-    %close all;
-    %figure;
-    %imshow(im);
-    %hold on;
+    if(shouldDisplay)
+        % Display image and bounding boxes
+        close all;
+        figure;
+        imshow(im);
+        hold on;
+    end
     
     % generate a grid of features across the entire image. you may want to 
     % try generating features more densely (i.e., not in a grid)
@@ -44,13 +49,22 @@ for i=1:nImages
         confs(r,c) = w'*window(:)+b;
         end
     end
-       
+    
     % get the most confident predictions 
     [~,inds] = sort(confs(:),'descend');
-    bboxes = []; % Clear bounding boxes per image
-    %inds = inds(1:40); % (use a bigger number for better recall)
-    for n=1:numel(inds)        
-        [row,col] = ind2sub([size(feats,1) size(feats,2)],inds(n));
+    topThreshold = 50; % Get the top x detections
+    overlapThreshold = 0.1;
+    
+    % Reset per new image
+    indexOfBbox = 1;
+    numOfBoxes = 0;
+    bboxes = [];
+    %inds = inds(1:topThreshold); % (use a bigger number for better recall)
+    while(numOfBoxes < topThreshold)    
+        if(indexOfBbox > size(inds,1))
+            break;
+        end
+        [row,col] = ind2sub([size(feats,1) size(feats,2)],inds(indexOfBbox));
         
         bbox = [ col*cellSize ...
                  row*cellSize ...
@@ -58,88 +72,62 @@ for i=1:nImages
                 (row+cellSize-1)*cellSize];
         conf = confs(row,col);
         image_name = {imageList(i).name};
+        shouldSave = 1;
         
-        %plot_rectangle = [bbox(1), bbox(2); ...
-        %    bbox(1), bbox(4); ...
-        %    bbox(3), bbox(4); ...
-        %    bbox(3), bbox(2); ...
-        %    bbox(1), bbox(2)];
-        %plot(plot_rectangle(:,1), plot_rectangle(:,2), 'g-');
-        
-        % save         
-        bboxes = [bboxes; bbox]; % Bounding boxes for current image
-        confidences = [confidences; conf];
-        image_names = [image_names; image_name];
-    end
-    
-    topThreshold = 20; % Get the top x detections
-    overlapThreshold = 0.5;
-    bboxesNMS = [];
-    confidencesNMS = [];
-    image_namesNMS = [];
-    for j=1:topThreshold
-        if(inds(j) == 0)
-            continue;
-        end
-        % get bbox coordinates of top detections
-        bb = bboxes(inds(j),:); 
-        bboxesNMS = [bboxesNMS; bb];
-        confidencesNMS = confidences(inds(j));
-        image_namesNMS = image_names(inds(j));
-        
-        % Non Max Suppression 
-        % (compare top confidence box to all other boxes and 
-        % remove overlaps) 
-        for n=j+1:numel(inds)
-            % Ensure we don't compare with a previously detected overlap
-            % or compare the same two boxes
-            if(inds(n) == 0)
-                continue;
+        for j=1:numOfBoxes
+            if(numOfBoxes==0)
+                break;
             end
-            bb2 = bboxes(inds(n),:);
+            bb2 = bboxes(j,:);
             % Intersect box
-            bi=[max(bb(1),bb2(1)); 
-                max(bb(2),bb2(2)); 
-                min(bb(3),bb2(3)); 
-                min(bb(4),bb2(4))];
+            bi=[max(bbox(1),bb2(1)); 
+                max(bbox(2),bb2(2)); 
+                min(bbox(3),bb2(3)); 
+                min(bbox(4),bb2(4))];
             % Width and height of intersect
             iw=bi(3)-bi(1)+1;
             ih=bi(4)-bi(2)+1;
-            if iw>0 && ih>0 % Overlap detected!      
+            if iw>0 && ih>0 % Overlap detected!     
                 % compute overlap as area of intersection / area of union
-                ua=(bb(3)-bb(1)+1)*(bb(4)-bb(2)+1)+...
+                ua=(bbox(3)-bbox(1)+1)*(bbox(4)-bbox(2)+1)+...
                    (bb2(3)-bb2(1)+1)*(bb2(4)-bb2(2)+1)-...
                    iw*ih;
                 ov=iw*ih/ua;
                 if ov>overlapThreshold
                     % Delete overlapping box
-                    inds(j) = 0;
+                    shouldSave = 0;
                 end
             end
         end
+        indexOfBbox = indexOfBbox+1;
+        if(~shouldSave)
+            continue
+        end
+        
+        if(shouldDisplay)
+            plot_rectangle = [bbox(1), bbox(2); ...
+                bbox(1), bbox(4); ...
+                bbox(3), bbox(4); ...
+                bbox(3), bbox(2); ...
+                bbox(1), bbox(2)];
+            plot(plot_rectangle(:,1), plot_rectangle(:,2), 'g-');
+        end
+        
+        % save         
+        bboxes = [bboxes; bbox]; % Bounding boxes for current image
+        confidences = [confidences; conf];
+        image_names = [image_names; image_name];
+        numOfBoxes = numOfBoxes+1;
     end
-    bboxesTotal = [bboxesTotal; bboxesNMS];
+    bboxesTotal = [bboxesTotal; bboxes];
     
-    % Display image and bounding boxes
-    close all;
-    figure;
-    imshow(im);
-    hold on;
-    for m=1:size(bboxesNMS,1)
-        bbox = bboxesNMS(m,:);
-        plot_rectangle = [bbox(1), bbox(2); ...
-            bbox(1), bbox(4); ...
-            bbox(3), bbox(4); ...
-            bbox(3), bbox(2); ...
-            bbox(1), bbox(2)];
-        plot(plot_rectangle(:,1), plot_rectangle(:,2), 'g-');
-    end    
-    
-    fprintf('got preds for image %d/%d\n', i,nImages);
-    pause;
+    if(shouldDisplay)
+        fprintf('got preds for image %d/%d\n', i,nImages);
+        pause;
+    end
 end
 
 % evaluate
 label_path = 'test_images_gt.txt';
 [gt_ids, gt_bboxes, gt_isclaimed, tp, fp, duplicate_detections] = ...
-    evaluate_detections_on_test(bboxes, confidences, image_names, label_path);
+    evaluate_detections_on_test(bboxesTotal, confidences, image_names, label_path);
