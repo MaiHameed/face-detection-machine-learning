@@ -17,6 +17,9 @@ image_names = cell(0,1);
 
 bboxesTotal = [];
 
+% Modifiable variables
+topThreshold = 30; % Get the top x detections
+overlapThreshold = 0.1;
 shouldDisplay = 0;
 
 dim = 36;
@@ -50,22 +53,21 @@ for i=1:nImages
         end
     end
     
-    % get the most confident predictions 
-    [~,inds] = sort(confs(:),'descend');
-    topThreshold = 50; % Get the top x detections
-    overlapThreshold = 0.1;
-    
-    % Reset per new image
+    % Reset per new image    
+    [~,inds] = sort(confs(:),'descend'); % order by most confident predications
     indexOfBbox = 1;
     numOfBoxes = 0;
     bboxes = [];
-    %inds = inds(1:topThreshold); % (use a bigger number for better recall)
+    % Collect the top x number of bounding boxes
     while(numOfBoxes < topThreshold)    
+        % Break out of loop if we ran through all possible bounding boxes
         if(indexOfBbox > size(inds,1))
             break;
         end
-        [row,col] = ind2sub([size(feats,1) size(feats,2)],inds(indexOfBbox));
         
+        % Get X1, Y1, X2, Y2 coordinates of bounding box
+        % 1 being top left, 2 being bottom right
+        [row,col] = ind2sub([size(feats,1) size(feats,2)],inds(indexOfBbox));
         bbox = [ col*cellSize ...
                  row*cellSize ...
                 (col+cellSize-1)*cellSize ...
@@ -74,6 +76,9 @@ for i=1:nImages
         image_name = {imageList(i).name};
         shouldSave = 1;
         
+        % For the currently selected bounding box, check if it overlaps
+        % with any of the already saved boxes. If yes, and ratio is
+        % over a threshold, discard.
         for j=1:numOfBoxes
             if(numOfBoxes==0)
                 break;
@@ -99,6 +104,8 @@ for i=1:nImages
                 end
             end
         end
+        
+        % Skip saving current box details if overlap was detected
         indexOfBbox = indexOfBbox+1;
         if(~shouldSave)
             continue
