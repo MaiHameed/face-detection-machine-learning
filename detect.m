@@ -2,6 +2,10 @@
 run('vlfeat-0.9.21/toolbox/vl_setup');
 
 %% Detect
+
+% Warning, this script takes quite a long time to run, read through
+% detect_summary.m for an overview and precision results.
+
 clear;
 imageDir = 'test_images';
 imageList = dir(sprintf('%s/*.jpg',imageDir));
@@ -19,83 +23,111 @@ bboxesTotal = [];
 
 % Modifiable variables
 topThreshold = 30; % Get the top x detections
-overlapThreshold = 0.1;
+overlapThreshold = 0.05;
+confThreshold = 1;
 shouldDisplay = 0;
+scales = 0.02:0.02:1.6;
 
 dim = 36;
 for i=1:nImages
     % load and show the image
-    im = im2single(imread(sprintf('%s/%s',imageDir,imageList(i).name)));
+    imOriginal = im2single(imread(sprintf('%s/%s',imageDir,imageList(i).name)));
+    image_name = {imageList(i).name};
     
     if(shouldDisplay)
         % Display image and bounding boxes
         close all;
         figure;
-        imshow(im);
+        imshow(imOriginal);
         hold on;
     end
     
-    % generate a grid of features across the entire image. you may want to 
-    % try generating features more densely (i.e., not in a grid)
-    feats = vl_hog(im,cellSize);
+    % Store bbox coordinate info relative to original image from all
+    % scalings
+    bboxesFromScales = [];
+    % Store confidence info
+    confsFromScales = [];
     
-    % concatenate the features into 6x6 bins, and classify them (as if they
-    % represent 36x36-pixel faces)
-    [rows,cols,~] = size(feats); 
-    confs = zeros(rows,cols);
-    for r=1:rows-cellSize+1
-        for c=1:cols-cellSize+1
-        % create feature vector for the current window and classify it using the SVM model, 
-        % take dot product between feature vector and w and add b,
-	    % store the result in the matrix of confidence scores confs(r,c)
-        window = feats(r:r+cellSize-1,c:c+cellSize-1,:);
-        confs(r,c) = w'*window(:)+b;
+    for k=1:numel(scales)
+        
+        % Scale image
+        scale = scales(k);
+        im = imresize(imOriginal, scale);                
+
+        % generate a grid of features across the entire image. you may want to 
+        % try generating features more densely (i.e., not in a grid)
+        feats = vl_hog(im,cellSize);
+
+        % concatenate the features into 6x6 bins, and classify them (as if they
+        % represent 36x36-pixel faces)
+        [rows,cols,~] = size(feats); 
+        confs = zeros(rows,cols);
+        for r=1:rows-cellSize+1
+            for c=1:cols-cellSize+1
+            % create feature vector for the current window and classify it using the SVM model, 
+            % take dot product between feature vector and w and add b,
+            % store the result in the matrix of confidence scores confs(r,c)
+            window = feats(r:r+cellSize-1,c:c+cellSize-1,:);
+            conf = w'*window(:)+b;
+            
+            % Don't even bother with this bounding box if the confidence is
+            % too low
+            if (conf < confThreshold)
+                continue;
+            end
+            
+            % Calculate bbox relative to original scaled image
+            bbox = [ (c*cellSize)/scale ...
+                     (r*cellSize)/scale ...
+                    ((c+cellSize-1)*cellSize)/scale ...
+                    ((r+cellSize-1)*cellSize)/scale];
+            bboxesFromScales = [bboxesFromScales; bbox]; % Append bbox to total boxes
+            confsFromScales = [confsFromScales; conf];
+            end
         end
     end
     
-    % Reset per new image    
-    [~,inds] = sort(confs(:),'descend'); % order by most confident predications
+    % Non-maximum suppression
+    [~, inds] = sort(confsFromScales(:),'descend');
     indexOfBbox = 1;
     numOfBoxes = 0;
     bboxes = [];
-    % Collect the top x number of bounding boxes
-    while(numOfBoxes < topThreshold)    
+    while(numOfBoxes < topThreshold)
         % Break out of loop if we ran through all possible bounding boxes
         if(indexOfBbox > size(inds,1))
             break;
         end
         
-        % Get X1, Y1, X2, Y2 coordinates of bounding box
-        % 1 being top left, 2 being bottom right
-        [row,col] = ind2sub([size(feats,1) size(feats,2)],inds(indexOfBbox));
-        bbox = [ col*cellSize ...
-                 row*cellSize ...
-                (col+cellSize-1)*cellSize ...
-                (row+cellSize-1)*cellSize];
-        conf = confs(row,col);
-        image_name = {imageList(i).name};
+        % Get current bounding box
+        bbox = bboxesFromScales(inds(indexOfBbox),:);
+        conf = confsFromScales(inds(indexOfBbox));
         shouldSave = 1;
         
         % For the currently selected bounding box, check if it overlaps
         % with any of the already saved boxes. If yes, and ratio is
         % over a threshold, discard.
         for j=1:numOfBoxes
-            if(numOfBoxes==0)
+            if(numOfBoxes == 0)
                 break;
             end
-            bb2 = bboxes(j,:);
+            
+            % bbox2 iterates through all already saved boxes
+            bbox2 = bboxes(j,:);
+            
             % Intersect box
-            bi=[max(bbox(1),bb2(1)); 
-                max(bbox(2),bb2(2)); 
-                min(bbox(3),bb2(3)); 
-                min(bbox(4),bb2(4))];
+            bi=[max(bbox(1),bbox2(1)); 
+                max(bbox(2),bbox2(2)); 
+                min(bbox(3),bbox2(3)); 
+                min(bbox(4),bbox2(4))];
+            
             % Width and height of intersect
             iw=bi(3)-bi(1)+1;
             ih=bi(4)-bi(2)+1;
+            
             if iw>0 && ih>0 % Overlap detected!     
                 % compute overlap as area of intersection / area of union
                 ua=(bbox(3)-bbox(1)+1)*(bbox(4)-bbox(2)+1)+...
-                   (bb2(3)-bb2(1)+1)*(bb2(4)-bb2(2)+1)-...
+                   (bbox2(3)-bbox2(1)+1)*(bbox2(4)-bbox2(2)+1)-...
                    iw*ih;
                 ov=iw*ih/ua;
                 if ov>overlapThreshold
@@ -126,8 +158,8 @@ for i=1:nImages
         image_names = [image_names; image_name];
         numOfBoxes = numOfBoxes+1;
     end
-    bboxesTotal = [bboxesTotal; bboxes];
     
+    bboxesTotal = [bboxesTotal; bboxes];
     if(shouldDisplay)
         fprintf('got preds for image %d/%d\n', i,nImages);
         pause;

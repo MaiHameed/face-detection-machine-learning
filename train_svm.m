@@ -21,7 +21,7 @@ validLabels = cat(1,ones(pos_nImages-numOfTraining,1), ...
              
 %% Train
 
-lambda = 0.06;
+lambda = 0.0645;
 [w,b] = vl_svmtrain(trainFeats',trainLabels',lambda);
 
 fprintf('Classifier performance on train data:\n')
